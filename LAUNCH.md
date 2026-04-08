@@ -1,10 +1,10 @@
 I've consolidated all METATRON files into a singular bootstrapped python file: metatron.py.
-The app now runs off of a singular file launch, which boostraps the rest of the folders/files.
+The app now runs off of a singular file launch, which bootstraps the rest of the folders/files.
 Nothing changed just consolidated (using LLM). 
 
 **Test/Verify for errors before deploying (For LLM Mistakes).** 
 **Works on my system linux kali debian.**
-**message me on x.com/webxos for anymore info.**
+**Message me on x.com/webxos for anymore info.**
 **Hopefully this helps!**
 
 Launch bash command (minus libraries/depends):
