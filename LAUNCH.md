@@ -1,4 +1,4 @@
-I've consolidated all METATRON files into a singular bootstrapped python file: metatron.py
+I've consolidated all METATRON files into a singular bootstrapped python file: metatron.py.
 The app now runs off of a singular file launch, which boostraps the rest of the folders/files.
 Nothing changed just consolidated (using LLM). 
 
