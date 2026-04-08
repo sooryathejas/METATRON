@@ -1,6 +1,10 @@
+# Notes and Changes with this PR
+
 I've consolidated all METATRON files into a singular bootstrapped python file: metatron.py.
 The app now runs off of a singular file launch, which bootstraps the rest of the folders/files.
 Nothing changed just consolidated (using LLM). 
+
+(ps developer: please create an X.com (twitter) account for this you already have lot of people talking about it! add me: x.com/webxos lets work!, USA here.)
 
 **Test/Verify for errors before deploying (For LLM Mistakes).** 
 **Works on my system linux kali debian.**
@@ -25,3 +29,6 @@ pip install requests beautifulsoup4 duckduckgo-search reportlab
 python metatron.py
 
 ```
+
+
+(this is just for info! disregard this file. thanks for the great project!)
