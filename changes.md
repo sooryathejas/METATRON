@@ -10,7 +10,7 @@ Nothing changed just consolidated (using LLM).
 Launch bash command (minus libraries/depends):
 
 ```bash
-cd /home/kali/metatron
+cd ~/metatron (The folder the file is in.)
 
 # 1. Create a virtual environment
 python3 -m venv venv
