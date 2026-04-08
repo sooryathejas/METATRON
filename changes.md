@@ -7,7 +7,7 @@ Nothing changed just consolidated (using LLM).
 **Message me on x.com/webxos for anymore info.**
 **Hopefully this helps!**
 
-Launch bash command (minus libraries/depends):
+Launch bash command:
 
 cd ~/metatron (The folder the file is in.)
 
