@@ -13,9 +13,11 @@ lxml==6.0.2
 markdown-it-py==4.0.0
 mdurl==0.1.2
 mysql-connector-python==9.6.0
+openai>=1.0.0
 pillow==12.2.0
 primp==1.2.1
 Pygments==2.20.0
+python-dotenv>=1.0.0
 reportlab==4.4.10
 requests==2.33.1
 rich==14.3.3

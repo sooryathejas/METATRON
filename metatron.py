@@ -386,7 +386,9 @@ def check_db():
         return True
     except Exception as e:
         error(f"MariaDB connection failed: {e}")
-        error("Make sure MariaDB is running: sudo systemctl start mariadb")
+        error("Make sure MariaDB is running:")
+        error("  Docker: docker compose up -d")
+        error("  Native: sudo systemctl start mariadb")
         return False
 
 

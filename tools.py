@@ -6,18 +6,64 @@ Tools used: nmap, whois, whatweb, curl, dig, nikto
 OS: Parrot OS (all these tools are pre-installed or easily available)
 """
 
+import shutil
 import subprocess
 
 
 # ─────────────────────────────────────────────
-# BASE RUNNER
+# BASE RUNNER (local + docker fallback)
 # ─────────────────────────────────────────────
+
+DOCKER_TOOLS_CONTAINER = "metatron-tools"
+
+
+def _tool_available(tool: str) -> bool:
+    return shutil.which(tool) is not None
+
+
+def _run_docker(command: list, timeout: int = 120) -> str:
+    """Execute command inside the metatron-tools container."""
+    docker_cmd = [
+        "docker", "exec", DOCKER_TOOLS_CONTAINER
+    ] + command
+    try:
+        result = subprocess.run(
+            docker_cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        output = result.stdout.strip()
+        errors = result.stderr.strip()
+        if output and errors:
+            return output + "\n[STDERR]\n" + errors
+        elif output:
+            return output
+        elif errors:
+            return errors
+        else:
+            return "[!] Tool returned no output."
+    except subprocess.TimeoutExpired:
+        return f"[!] Docker timed out after {timeout}s: {' '.join(command)}"
+    except FileNotFoundError:
+        return "[!] Docker not found. Cannot run containerized tools."
+    except Exception as e:
+        return f"[!] Docker error running {command[0]}: {e}"
+
 
 def run_tool(command: list, timeout: int = 120) -> str:
     """
     Execute a shell command, return combined stdout + stderr as string.
+    Falls back to Docker container if tool is not available locally.
     Never crashes the program — always returns something.
     """
+    tool = command[0] if command else ""
+    use_docker = not _tool_available(tool)
+
+    if use_docker:
+        print(f"  [*] {tool} not found locally — using Docker fallback ({DOCKER_TOOLS_CONTAINER})")
+        return _run_docker(command, timeout=timeout)
+
     try:
         result = subprocess.run(
             command,

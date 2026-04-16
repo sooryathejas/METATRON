@@ -1,0 +1,11 @@
+version: "3.8"
+services:
+  pentest-tools:
+    image: parrotsec/security
+    container_name: metatron-tools
+    volumes:
+      - /tmp/metatron-scans:/scans
+    command: sleep infinity
+    cap_add:
+      - NET_RAW
+    network_mode: host
