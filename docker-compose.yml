@@ -1,0 +1,23 @@
+version: "3.8"
+services:
+  mariadb:
+    image: mariadb:11
+    container_name: metatron-mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: metatron
+      MYSQL_USER: metatron
+      MYSQL_PASSWORD: metatron123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./config/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mariadb_data:

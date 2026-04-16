@@ -1,0 +1,68 @@
+[
+  {
+    "model": "qwen3.5:4b",
+    "timestamp": "2026-04-16T15:05:26.274832",
+    "error": null,
+    "time_seconds": 24.24,
+    "response_length": 1279,
+    "vulns_parsed": 3,
+    "exploits_parsed": 0,
+    "risk_level": "HIGH",
+    "preview": "VULN: CVE-2018-1463 | SEVERITY: HIGH | PORT: 80 | SERVICE: Apache httpd DESC: A vulnerability in the mod_security module of Apache HTTP Server allows remote attackers to execute arbitrary code. FIX: Ensure your installation does not include version earlier than Apache ModSecurity/CSF (CVE-2017-3465)"
+  },
+  {
+    "model": "qwen3.5:9b",
+    "timestamp": "2026-04-16T15:05:58.706792",
+    "error": null,
+    "time_seconds": 67.39,
+    "response_length": 2566,
+    "vulns_parsed": 3,
+    "exploits_parsed": 0,
+    "risk_level": "HIGH",
+    "preview": "VULN: CVE-2014-6275 | SEVERITY: HIGH | PORT: 80 | SERVICE: Apache httpd DESC: The target is running Apache httpd version 2.4.7, which is known to be vulnerable to the mod_proxy_http DoS vulnerability (CVE-2014-6275). This flaw allows an attacker to cause a denial of service by sending specific craft"
+  },
+  {
+    "model": "deepseek-r1:8b",
+    "timestamp": "2026-04-16T15:07:16.471700",
+    "error": null,
+    "time_seconds": 68.58,
+    "response_length": 1330,
+    "vulns_parsed": 3,
+    "exploits_parsed": 0,
+    "risk_level": "MEDIUM",
+    "preview": "VULN: OpenSSH Vulnerability | SEVERITY: medium/high | PORT: 22 | SERVICE: SSH DESC: The version of OpenSSH (6.6.1p1) is outdated and has known vulnerabilities that could allow attackers to exploit weak encryption or authentication protocols, posing a significant risk if not updated. FIX: Upgrade the"
+  },
+  {
+    "model": "qwen3-it:4b",
+    "timestamp": "2026-04-16T15:08:33.259136",
+    "error": null,
+    "time_seconds": 17.89,
+    "response_length": 1369,
+    "vulns_parsed": 2,
+    "exploits_parsed": 0,
+    "risk_level": "MEDIUM",
+    "preview": "[TOOL: nmap -sV 192.168.1.1] → not applicable; target is scanme.nmap.org  VULN: OpenSSH 6.6.1p1 Ubuntu 2ubuntu2.13 | SEVERITY: medium | PORT: 22 | SERVICE: ssh DESC: OpenSSH 6.6.1 is known to have vulnerabilities in older versions, including potential for remote code execution via buffer overflows o"
+  },
+  {
+    "model": "llama3.2:3b",
+    "timestamp": "2026-04-16T15:08:58.500500",
+    "error": null,
+    "time_seconds": 10.22,
+    "response_length": 1055,
+    "vulns_parsed": 3,
+    "exploits_parsed": 0,
+    "risk_level": "LOW",
+    "preview": "[TOOL: nmap -sV scanme.nmap.org]  VULN: SSH Protocol Version Hardening | SEVERITY: low | PORT: 22 | SERVICE: ssh DESC: The SSH protocol version is outdated, which makes it vulnerable to known attacks. FIX: Update the SSH protocol version to the latest version, preferably 2.0 or higher.  VULN: Apache"
+  },
+  {
+    "model": "phi4-mini-it:4b",
+    "timestamp": "2026-04-16T15:09:15.879781",
+    "error": null,
+    "time_seconds": 13.49,
+    "response_length": 1229,
+    "vulns_parsed": 2,
+    "exploits_parsed": 0,
+    "risk_level": "LOW",
+    "preview": "VULN: OpenSSH 6.6.1p1 | SEVERITY: LOW | PORT: 22 | SERVICE: SSH | DESCRIPTION: The server is running OpenSSH 6.6.1p1, which could be prone to well-known vulnerabilities, but there's no evidence of an exploit or exploit code used in a practical attack, especially since scanme.nmap.org is a commonly u"
+  }
+]

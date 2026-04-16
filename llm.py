@@ -1,101 +1,36 @@
 #!/usr/bin/env python3
 """
 METATRON - llm.py
-Ollama interface for metatron-qwen model.
+LLM interface for penetration testing analysis.
+Supports FLM (OpenAI-compatible) and Ollama backends via llm_backends.py.
 Builds prompts, handles AI responses, runs tool dispatch loop.
-Model: metatron-qwen (fine-tuned from huihui_ai/qwen3.5-abliterated:9b)
 """
 
+import os
 import re
-import requests
-import json
-from tools import run_tool_by_command, run_nmap, run_curl_headers
+from dotenv import load_dotenv
+from llm_backends import ask_llm
+from tools import run_tool_by_command
 from search import handle_search_dispatch
 
-OLLAMA_URL  = "http://localhost:11434/api/chat"
-MODEL_NAME  = "metatron-qwen"
+load_dotenv()
+
 MAX_TOKENS = 8192
-MAX_TOOL_LOOPS = 9   # max times AI can call tools per session
-OLLAMA_TIMEOUT = 600 
+MAX_TOOL_LOOPS = 9
+
+SYSTEM_PROMPT_PATH = os.getenv("METATRON_SYSTEM_PROMPT", "config/system_prompt.txt")
 
 # ─────────────────────────────────────────────
-# SYSTEM PROMPT
+# SYSTEM PROMPT LOADER
 # ─────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are METATRON, an elite AI penetration testing assistant running on Parrot OS.
-You are precise, technical, and direct. No fluff.
-
-You have access to real tools. To use them, write tags in your response:
-
-  [TOOL: nmap -sV 192.168.1.1]       → runs nmap or any CLI tool
-  [SEARCH: CVE-2021-44228 exploit]   → searches the web via DuckDuckGo
-
-Rules:
-- Always analyze scan data thoroughly before suggesting exploits
-- List vulnerabilities with: name, severity (critical/high/medium/low), port, service
-- For each vulnerability, suggest a concrete fix
-- If you need more information, use [SEARCH:] or [TOOL:]
-- Format vulnerabilities clearly so they can be saved to a database
-- Be specific about CVE IDs when you know them
-- Always give a final risk rating: CRITICAL / HIGH / MEDIUM / LOW
-
-Output format for vulnerabilities (use this exactly):
-VULN: <name> | SEVERITY: <level> | PORT: <port> | SERVICE: <service>
-DESC: <description>
-FIX: <fix recommendation>
-
-Output format for exploits:
-EXPLOIT: <name> | TOOL: <tool> | PAYLOAD: <payload or description>
-RESULT: <expected result>
-NOTES: <any notes>
-
-End your analysis with:
-RISK_LEVEL: <CRITICAL|HIGH|MEDIUM|LOW>
-SUMMARY: <2-3 sentence overall summary>
-IMPORTANT: Never use markdown bold (**text**) or 
-headers (## text). Plain text only. No exceptions.
-IMPORTANT RULES FOR ACCURACY:
-- nmap filtered or no-response means INCONCLUSIVE not vulnerable
-- Never assert a server version without seeing it in scan output
-- Never infer CVEs from guessed versions
-- curl timeouts and HTTP_CODE=000 mean the host is unreachable not exploitable
-- ab and stress tools are not Slowloris unless confirmed
-- Only assign CRITICAL if there is direct evidence of exploitability
-- If evidence is weak mark severity as LOW with note: unconfirmed"""
-
-
-# ─────────────────────────────────────────────
-# OLLAMA API CALL
-# ─────────────────────────────────────────────
-
-def ask_ollama(messages: list) -> str:
+def load_system_prompt() -> str:
     try:
-        payload = {
-            "model":  MODEL_NAME,
-            "messages": messages,
-            "stream": False,
-            "options": {
-                "num_predict": MAX_TOKENS,
-                "temperature": 0.7,
-                "top_p": 0.9,
-            }
-        }
-        print(f"\n[*] Sending to {MODEL_NAME}...")
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-        response = data.get("message", {}).get("content", "").strip()
-        if not response:
-            return "[!] Model returned empty response."
-        return response
-    except requests.exceptions.ConnectionError:
-        return "[!] Cannot connect to Ollama. Is it running? Try: ollama serve"
-    except requests.exceptions.Timeout:
-        return "[!] Ollama timed out. Model may be loading, try again."
-    except requests.exceptions.HTTPError as e:
-        return f"[!] Ollama HTTP error: {e}"
-    except Exception as e:
-        return f"[!] Unexpected error: {e}"
+        with open(SYSTEM_PROMPT_PATH, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        print(f"[!] System prompt not found at {SYSTEM_PROMPT_PATH}. Using fallback.")
+        return "You are METATRON, an elite AI penetration testing assistant. Be precise and technical."
 
 
 # ─────────────────────────────────────────────
@@ -108,7 +43,6 @@ def extract_tool_calls(response: str) -> list:
     Returns list of tuples: [("TOOL", "nmap -sV x.x.x.x"), ("SEARCH", "CVE...")]
     """
     calls = []
-
     tool_matches   = re.findall(r'\[TOOL:\s*(.+?)\]',   response)
     search_matches = re.findall(r'\[SEARCH:\s*(.+?)\]', response)
 
@@ -119,34 +53,26 @@ def extract_tool_calls(response: str) -> list:
 
     return calls
 
+
 def summarize_tool_output(raw_output: str) -> str:
     """
     Compress raw tool output into security-relevant bullet points
     before injecting into the LLM context.
-    Keeps context size manageable across rounds.
     """
     if len(raw_output) < 500:
         return raw_output
 
     try:
-        payload = {
-            "model":  MODEL_NAME,
-            "messages": [
-    {"role": "system", "content": "You are a security data compressor. Extract only security-relevant facts. Return maximum 15 bullet points. Plain text only. No markdown."},
-    {"role": "user", "content": f"Compress this tool output:\n{raw_output[:6000]}"} ],
-            "stream": False,
-            "options": {
-                "num_predict": 512,
-                "temperature": 0.2,
-                "top_p": 0.9,
-            }
-        }
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=120)
-        resp.raise_for_status()
-        summary = resp.json().get("message", {}).get("content", "").strip()
-        return summary if summary else raw_output
+        messages = [
+            {"role": "system", "content": "You are a security data compressor. Extract only security-relevant facts. Return maximum 15 bullet points. Plain text only. No markdown."},
+            {"role": "user", "content": f"Compress this tool output:\n{raw_output[:6000]}"}
+        ]
+        summary = ask_llm(messages, max_tokens=512, temperature=0.2)
+        return summary if summary and not summary.startswith("[!]") else raw_output
     except Exception:
         return raw_output
+
+
 def run_tool_calls(calls: list) -> str:
     """
     Execute all tool/search calls and return combined results string.
@@ -176,20 +102,65 @@ def run_tool_calls(calls: list) -> str:
 # ─────────────────────────────────────────────
 # PARSER — extract structured data from AI output
 # ─────────────────────────────────────────────
+
 def _clean(line: str) -> str:
     return re.sub(r'\*+', '', line).strip()
+
+
+def _extract_vuln_fields(text: str, vuln: dict):
+    """Helper to extract vuln_name/severity/port/service from a pipe-separated string."""
+    parts = text.split("|")
+    for idx, part in enumerate(parts):
+        part = part.strip()
+        if re.match(r'VULN\s*:', part, re.IGNORECASE):
+            vuln["vuln_name"] = re.sub(r'(?i)^VULN\s*:', '', part).strip()
+        elif re.match(r'SEVER\w*?:', part, re.IGNORECASE):
+            vuln["severity"] = re.sub(r'(?i)^SEVER\w*?:', '', part).strip().lower()
+        elif re.match(r'PORT\s*:', part, re.IGNORECASE):
+            vuln["port"] = re.sub(r'(?i)^PORT\s*:', '', part).strip()
+        elif re.match(r'SERVICE\s*:', part, re.IGNORECASE):
+            vuln["service"] = re.sub(r'(?i)^SERVICE\s*:', '', part).strip()
+        elif idx == 0 and vuln["vuln_name"] == "":
+            # First part without VULN: prefix — treat as name if it's not a known field
+            if not re.match(r'(SEVER\w*?|PORT|SERVICE|EXPLOIT|TOOL|PAYLOAD|RESULT|NOTES|DESC|FIX)\s*:', part, re.IGNORECASE):
+                vuln["vuln_name"] = part
+
+
+def _parse_vuln_block(lines: list, start_idx: int) -> tuple:
+    """
+    Parse DESC: and FIX: lines starting from start_idx.
+    Returns (description, fix, next_index).
+    """
+    description = ""
+    fix = ""
+    j = start_idx
+    while j < len(lines) and j <= start_idx + 5:
+        next_line = _clean(lines[j])
+        # stop at next vuln, exploit, risk level, summary, or numbered list item
+        if re.match(r'^(\d+\.|VULN:|EXPLOIT:|RISK_LEVEL:|SUMMARY:)', next_line, re.IGNORECASE):
+            break
+        if re.match(r'DESC\s*:', next_line, re.IGNORECASE):
+            description = re.sub(r'(?i)^DESC\s*:', '', next_line).strip()
+        elif re.match(r'FIX\s*:', next_line, re.IGNORECASE):
+            fix = re.sub(r'(?i)^FIX\s*:', '', next_line).strip()
+        j += 1
+    return description, fix, j
+
+
 def parse_vulnerabilities(response: str) -> list:
     """
-    Parse VULN: lines from AI response into dicts.
+    Parse vulnerabilities from AI response.
+    Supports both structured format (VULN: ...) and markdown/list format.
     Returns list of vulnerability dicts ready for db.save_vulnerability()
     """
     vulns = []
     lines = response.splitlines()
 
+    # ── Pass 1: structured format ─────────────────────────────
     i = 0
     while i < len(lines):
         line = _clean(lines[i])
-        if line.startswith("VULN:"):
+        if re.match(r'VULN\s*:', line, re.IGNORECASE):
             vuln = {
                 "vuln_name":   "",
                 "severity":    "medium",
@@ -198,35 +169,48 @@ def parse_vulnerabilities(response: str) -> list:
                 "description": "",
                 "fix":         ""
             }
-
-            # parse header line: VULN: name | SEVERITY: x | PORT: x | SERVICE: x
-            parts = line.split("|")
-            for part in parts:
-                part = part.strip()
-                if part.startswith("VULN:"):
-                    vuln["vuln_name"] = part.replace("VULN:", "").strip()
-                elif part.startswith("SEVERITY:"):
-                    vuln["severity"] = part.replace("SEVERITY:", "").strip().lower()
-                elif part.startswith("PORT:"):
-                    vuln["port"] = part.replace("PORT:", "").strip()
-                elif part.startswith("SERVICE:"):
-                    vuln["service"] = part.replace("SERVICE:", "").strip()
-
-            # look ahead for DESC: and FIX: lines
-            j = i + 1
-            while j < len(lines) and j <= i + 5:
-                next_line = _clean(lines[j])
-                if next_line.startswith(("VULN:", "EXPLOIT:", "RISK_LEVEL:", "SUMMARY:")):
-                    break
-                if next_line.startswith("DESC:"):
-                    vuln["description"] = next_line.replace("DESC:", "").strip()
-                elif next_line.startswith("FIX:"):
-                    vuln["fix"] = next_line.replace("FIX:", "").strip()
-                j += 1
-
+            _extract_vuln_fields(line, vuln)
+            desc, fix, i = _parse_vuln_block(lines, i + 1)
+            vuln["description"] = desc
+            vuln["fix"] = fix
             if vuln["vuln_name"]:
                 vulns.append(vuln)
+            continue
+        i += 1
 
+    if vulns:
+        return vulns
+
+    # ── Pass 2: markdown / numbered list format ───────────────
+    i = 0
+    while i < len(lines):
+        line = _clean(lines[i])
+        # Match lines like: 1. **name | SEVERITY: x | PORT: y | SERVICE: z**
+        # _clean() already strips asterisks, so we match without them
+        md_match = re.match(r'^\d+\.\s+(.+?)$', line)
+        if md_match:
+            inner = md_match.group(1).strip()
+            vuln = {
+                "vuln_name":   "",
+                "severity":    "medium",
+                "port":        "",
+                "service":     "",
+                "description": "",
+                "fix":         ""
+            }
+            _extract_vuln_fields(inner, vuln)
+            desc, fix, i = _parse_vuln_block(lines, i + 1)
+            vuln["description"] = desc
+            vuln["fix"] = fix
+            # Skip false positives like "No other significant vulnerabilities were detected"
+            skip_keywords = [
+                "no other", "none detected", "no significant", "no vulnerabilities",
+                "nothing detected", "not applicable", "n/a"
+            ]
+            name_lower = vuln["vuln_name"].lower()
+            if vuln["vuln_name"] and not any(kw in name_lower for kw in skip_keywords):
+                vulns.append(vuln)
+            continue
         i += 1
 
     return vulns
@@ -255,22 +239,22 @@ def parse_exploits(response: str) -> list:
             parts = line.split("|")
             for part in parts:
                 part = part.strip()
-                if part.startswith("EXPLOIT:"):
-                    exploit["exploit_name"] = part.replace("EXPLOIT:", "").strip()
-                elif part.startswith("TOOL:"):
-                    exploit["tool_used"] = part.replace("TOOL:", "").strip()
-                elif part.startswith("PAYLOAD:"):
-                    exploit["payload"] = part.replace("PAYLOAD:", "").strip()
+                if re.match(r'EXPLOIT\s*:', part, re.IGNORECASE):
+                    exploit["exploit_name"] = re.sub(r'(?i)^EXPLOIT\s*:', '', part).strip()
+                elif re.match(r'TOOL\s*:', part, re.IGNORECASE):
+                    exploit["tool_used"] = re.sub(r'(?i)^TOOL\s*:', '', part).strip()
+                elif re.match(r'PAYLOAD\s*:', part, re.IGNORECASE):
+                    exploit["payload"] = re.sub(r'(?i)^PAYLOAD\s*:', '', part).strip()
 
             j = i + 1
             while j < len(lines) and j <= i + 4:
                 next_line = _clean(lines[j])
-                if next_line.startswith(("VULN:", "EXPLOIT:", "RISK_LEVEL:", "SUMMARY:")):
+                if re.match(r'(VULN|EXPLOIT|RISK_LEVEL|SUMMARY)\s*:', next_line, re.IGNORECASE):
                     break
-                if next_line.startswith("RESULT:"):
-                    exploit["result"] = next_line.replace("RESULT:", "").strip()
-                elif next_line.startswith("NOTES:"):
-                    exploit["notes"] = next_line.replace("NOTES:", "").strip()
+                if re.match(r'RESULT\s*:', next_line, re.IGNORECASE):
+                    exploit["result"] = re.sub(r'(?i)^RESULT\s*:', '', next_line).strip()
+                elif re.match(r'NOTES\s*:', next_line, re.IGNORECASE):
+                    exploit["notes"] = re.sub(r'(?i)^NOTES\s*:', '', next_line).strip()
                 j += 1
 
             if exploit["exploit_name"]:
@@ -283,7 +267,7 @@ def parse_exploits(response: str) -> list:
 
 def parse_risk_level(response: str) -> str:
     """Extract RISK_LEVEL from AI response."""
-    match = re.search(r'RISK_LEVEL:\s*(CRITICAL|HIGH|MEDIUM|LOW)', response, re.IGNORECASE)
+    match = re.search(r'RISK[_\s]LEVEL[:\s]+(CRITICAL|HIGH|MEDIUM|LOW)', response, re.IGNORECASE)
     return match.group(1).upper() if match else "UNKNOWN"
 
 
@@ -297,10 +281,12 @@ def parse_summary(response: str) -> str:
 # ─────────────────────────────────────────────
 
 def analyse_target(target: str, raw_scan: str) -> dict:
+    system_prompt = load_system_prompt()
+
     messages = [
         {
             "role": "system",
-            "content": SYSTEM_PROMPT
+            "content": system_prompt
         },
         {
             "role": "user",
@@ -317,7 +303,7 @@ List all vulnerabilities, fixes, and suggest exploits where applicable."""
     final_response = ""
 
     for loop in range(MAX_TOOL_LOOPS):
-        response = ask_ollama(messages)
+        response = ask_llm(messages)
 
         print(f"\n{'─'*60}")
         print(f"[METATRON - Round {loop + 1}]")
@@ -333,7 +319,6 @@ List all vulnerabilities, fixes, and suggest exploits where applicable."""
 
         tool_results = run_tool_calls(tool_calls)
 
-        # add assistant response and tool results as new messages
         messages.append({
             "role": "assistant",
             "content": response
@@ -362,20 +347,14 @@ If analysis is complete, give the final RISK_LEVEL and SUMMARY."""
         "summary":         summary,
         "raw_scan":        raw_scan
     }
+
+
 # ─────────────────────────────────────────────
 # QUICK TEST
 # ─────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("[ llm.py test — direct AI query ]\n")
-
-    # test if ollama is reachable
-    try:
-        r = requests.get("http://localhost:11434", timeout=5)
-        print("[+] Ollama is running.")
-    except Exception:
-        print("[!] Ollama not reachable. Run: ollama serve")
-        exit(1)
 
     target = input("Test target: ").strip()
     test_scan = f"Test recon for {target} — nmap and whois data would appear here."

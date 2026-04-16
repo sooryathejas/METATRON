@@ -26,13 +26,18 @@ RISK_COLORS = {
     "UNKNOWN":  "#7f8c8d",
 }
 
+DB_HOST = os.getenv("METATRON_DB_HOST", "localhost")
+DB_USER = os.getenv("METATRON_DB_USER", "metatron")
+DB_PASS = os.getenv("METATRON_DB_PASS", "metatron123")
+DB_NAME = os.getenv("METATRON_DB_NAME", "metatron")
+
 
 def get_connection():
     return mysql.connector.connect(
-        host="localhost",
-        user="metatron",
-        password="123",
-        database="metatron"
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASS,
+        database=DB_NAME
     )
 
 

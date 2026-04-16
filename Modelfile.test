@@ -1,0 +1,5 @@
+FROM llama3:latest
+PARAMETER num_ctx 8192
+PARAMETER temperature 0.7
+PARAMETER top_k 10
+PARAMETER top_p 0.9

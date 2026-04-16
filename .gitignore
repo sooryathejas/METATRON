@@ -214,3 +214,4 @@ exports/
 venv/
 __pycache__/
 *.pyc
+.gitnexus
