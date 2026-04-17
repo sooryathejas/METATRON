@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
 """
 METATRON - llm.py
-Ollama interface for metatron-qwen model.
+LLM interface — provider-agnostic.
 Builds prompts, handles AI responses, runs tool dispatch loop.
-Model: metatron-qwen (fine-tuned from huihui_ai/qwen3.5-abliterated:9b)
+Supports: Ollama (local), Anthropic (Claude), OpenAI, Google (Gemini).
+Provider selection is handled by providers.py + config.py.
 """
 
 import re
 import requests
-import json
 from tools import run_tool_by_command, run_nmap, run_curl_headers
 from search import handle_search_dispatch
+from providers import get_provider
+import config
 
-OLLAMA_URL  = "http://localhost:11434/api/chat"
-MODEL_NAME  = "metatron-qwen"
-MAX_TOKENS = 8192
-MAX_TOOL_LOOPS = 9   # max times AI can call tools per session
-OLLAMA_TIMEOUT = 600 
+MAX_TOOL_LOOPS = config.MAX_TOOL_LOOPS
 
 # ─────────────────────────────────────────────
 # SYSTEM PROMPT
@@ -65,37 +63,18 @@ IMPORTANT RULES FOR ACCURACY:
 
 
 # ─────────────────────────────────────────────
-# OLLAMA API CALL
+# LLM API CALL (provider-agnostic)
 # ─────────────────────────────────────────────
 
-def ask_ollama(messages: list) -> str:
-    try:
-        payload = {
-            "model":  MODEL_NAME,
-            "messages": messages,
-            "stream": False,
-            "options": {
-                "num_predict": MAX_TOKENS,
-                "temperature": 0.7,
-                "top_p": 0.9,
-            }
-        }
-        print(f"\n[*] Sending to {MODEL_NAME}...")
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-        response = data.get("message", {}).get("content", "").strip()
-        if not response:
-            return "[!] Model returned empty response."
-        return response
-    except requests.exceptions.ConnectionError:
-        return "[!] Cannot connect to Ollama. Is it running? Try: ollama serve"
-    except requests.exceptions.Timeout:
-        return "[!] Ollama timed out. Model may be loading, try again."
-    except requests.exceptions.HTTPError as e:
-        return f"[!] Ollama HTTP error: {e}"
-    except Exception as e:
-        return f"[!] Unexpected error: {e}"
+def ask_llm(messages: list, provider_name: str = None,
+            model: str = None) -> str:
+    """
+    Send messages to the active LLM provider.
+    provider_name/model: optional overrides for per-scan switching.
+    Returns the AI response string.
+    """
+    provider = get_provider(name=provider_name, model=model)
+    return provider.send(messages)
 
 
 # ─────────────────────────────────────────────
@@ -119,35 +98,32 @@ def extract_tool_calls(response: str) -> list:
 
     return calls
 
-def summarize_tool_output(raw_output: str) -> str:
+def summarize_tool_output(raw_output: str, provider_name: str = None,
+                          model: str = None) -> str:
     """
     Compress raw tool output into security-relevant bullet points
     before injecting into the LLM context.
     Keeps context size manageable across rounds.
+    Uses the active provider (or override) for summarization.
     """
     if len(raw_output) < 500:
         return raw_output
 
     try:
-        payload = {
-            "model":  MODEL_NAME,
-            "messages": [
-    {"role": "system", "content": "You are a security data compressor. Extract only security-relevant facts. Return maximum 15 bullet points. Plain text only. No markdown."},
-    {"role": "user", "content": f"Compress this tool output:\n{raw_output[:6000]}"} ],
-            "stream": False,
-            "options": {
-                "num_predict": 512,
-                "temperature": 0.2,
-                "top_p": 0.9,
-            }
-        }
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=120)
-        resp.raise_for_status()
-        summary = resp.json().get("message", {}).get("content", "").strip()
+        summarizer = get_provider(
+            name=provider_name, model=model,
+            max_tokens=512, temperature=0.2,
+        )
+        messages = [
+            {"role": "system", "content": "You are a security data compressor. Extract only security-relevant facts. Return maximum 15 bullet points. Plain text only. No markdown."},
+            {"role": "user", "content": f"Compress this tool output:\n{raw_output[:6000]}"},
+        ]
+        summary = summarizer.send(messages)
         return summary if summary else raw_output
     except Exception:
         return raw_output
-def run_tool_calls(calls: list) -> str:
+def run_tool_calls(calls: list, provider_name: str = None,
+                   model: str = None) -> str:
     """
     Execute all tool/search calls and return combined results string.
     """
@@ -165,7 +141,9 @@ def run_tool_calls(calls: list) -> str:
         else:
             output = f"[!] Unknown call type: {call_type}"
 
-        compressed = summarize_tool_output(output.strip())
+        compressed = summarize_tool_output(output.strip(),
+                                           provider_name=provider_name,
+                                           model=model)
         results += f"\n[{call_type} RESULT: {call_content}]\n"
         results += "─" * 40 + "\n"
         results += compressed + "\n"
@@ -296,7 +274,26 @@ def parse_summary(response: str) -> str:
 # MAIN ANALYSIS FUNCTION
 # ─────────────────────────────────────────────
 
-def analyse_target(target: str, raw_scan: str) -> dict:
+def analyse_target(target: str, raw_scan: str,
+                   provider_name: str = None, model: str = None) -> dict:
+    """
+    Full analysis pipeline:
+    1. Build initial prompt with scan data
+    2. Send to active LLM provider
+    3. Run tool dispatch loop if AI requests tools
+    4. Parse structured output
+    5. Return everything ready for db.py to save
+
+    provider_name/model: optional overrides for per-scan switching.
+
+    Returns dict with:
+      - full_response   : complete AI text
+      - vulnerabilities : list of parsed vuln dicts
+      - exploits        : list of parsed exploit dicts
+      - risk_level      : CRITICAL/HIGH/MEDIUM/LOW
+      - summary         : short summary text
+      - raw_scan        : original scan dump
+    """
     messages = [
         {
             "role": "system",
@@ -317,7 +314,7 @@ List all vulnerabilities, fixes, and suggest exploits where applicable."""
     final_response = ""
 
     for loop in range(MAX_TOOL_LOOPS):
-        response = ask_ollama(messages)
+        response = ask_llm(messages, provider_name=provider_name, model=model)
 
         print(f"\n{'─'*60}")
         print(f"[METATRON - Round {loop + 1}]")
@@ -331,7 +328,8 @@ List all vulnerabilities, fixes, and suggest exploits where applicable."""
             print("\n[*] No tool calls. Analysis complete.")
             break
 
-        tool_results = run_tool_calls(tool_calls)
+        tool_results = run_tool_calls(tool_calls,
+                                      provider_name=provider_name, model=model)
 
         # add assistant response and tool results as new messages
         messages.append({
@@ -368,13 +366,14 @@ If analysis is complete, give the final RISK_LEVEL and SUMMARY."""
 
 if __name__ == "__main__":
     print("[ llm.py test — direct AI query ]\n")
+    print(f"  Provider: {config.ACTIVE_PROVIDER}")
+    print(f"  Model:    {config.ACTIVE_MODEL}\n")
 
-    # test if ollama is reachable
-    try:
-        r = requests.get("http://localhost:11434", timeout=5)
-        print("[+] Ollama is running.")
-    except Exception:
-        print("[!] Ollama not reachable. Run: ollama serve")
+    provider = get_provider()
+    if provider.ping():
+        print(f"[+] {provider.label()} is reachable.")
+    else:
+        print(f"[!] {provider.label()} is not reachable. Check config.")
         exit(1)
 
     target = input("Test target: ").strip()
