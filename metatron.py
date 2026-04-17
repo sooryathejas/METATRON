@@ -32,6 +32,8 @@ from db import (
 )
 from tools import interactive_tool_run, format_recon_for_llm, run_default_recon
 from llm import analyse_target
+from providers import get_provider, list_providers
+import config
 
 
 # ─────────────────────────────────────────────
@@ -39,8 +41,8 @@ from llm import analyse_target
 # ─────────────────────────────────────────────
 
 def banner():
-    os.system("clear")
-    print("""
+    os.system("cls" if os.name == "nt" else "clear")
+    print(f"""
 \033[91m
     ███╗   ███╗███████╗████████╗ █████╗ ████████╗██████╗  ██████╗ ███╗   ██╗
     ████╗ ████║██╔════╝╚══██╔══╝██╔══██╗╚══██╔══╝██╔══██╗██╔═══██╗████╗  ██║
@@ -49,7 +51,7 @@ def banner():
     ██║ ╚═╝ ██║███████╗   ██║   ██║  ██║   ██║   ██║  ██║╚██████╔╝██║ ╚████║
     ╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
 \033[0m
-    \033[90mAI Penetration Testing Assistant  |  Model: metatron-qwen  |  Parrot OS\033[0m
+    \033[90mAI Penetration Testing Assistant  |  {config.ACTIVE_PROVIDER}/{config.ACTIVE_MODEL}  |  Parrot OS\033[0m
     \033[90m─────────────────────────────────────────────────────────────────────\033[0m
 """)
 
@@ -96,6 +98,18 @@ def confirm(question: str) -> bool:
 
 def new_scan():
     divider("NEW SCAN")
+
+    # ── provider selection ─────────────────────
+    prov_name = config.ACTIVE_PROVIDER
+    prov_model = config.ACTIVE_MODEL
+    prov_info = config.PROVIDERS.get(prov_name, {})
+    info(f"Using: {prov_info.get('name', prov_name)} / {prov_model}")
+    switch = prompt("[Enter = continue, s = switch provider]: ").lower()
+    if switch == "s":
+        result = provider_select_prompt()
+        if result:
+            prov_name, prov_model = result
+
     target = prompt("[?] Enter target IP or domain: ")
     if not target:
         warn("No target entered.")
@@ -125,7 +139,8 @@ def new_scan():
 
     # send to AI
     divider("AI ANALYSIS")
-    result = analyse_target(target, raw_scan)
+    result = analyse_target(target, raw_scan,
+                            provider_name=prov_name, model=prov_model)
 
     # ── save everything to DB ──────────────────
     divider("SAVING TO DATABASE")
@@ -376,6 +391,101 @@ def edit_delete_menu(sl_no: int):
 
 
 # ─────────────────────────────────────────────
+# PROVIDER SELECT PROMPT (inline, for per-scan switching)
+# ─────────────────────────────────────────────
+
+def provider_select_prompt():
+    """Quick inline provider/model picker. Returns (provider, model) or None."""
+    providers = list_providers()
+    print()
+    for i, p in enumerate(providers, 1):
+        key_status = "\033[92m✓\033[0m" if p["has_key"] else "\033[91m✗\033[0m"
+        active_tag = " \033[93m← active\033[0m" if p["active"] else ""
+        print(f"  [{i}] {p['name']}  {key_status}{active_tag}")
+
+    choice = prompt("Select provider [1-4]: ")
+    if not choice.isdigit() or int(choice) < 1 or int(choice) > len(providers):
+        warn("Invalid choice. Keeping current provider.")
+        return None
+
+    selected = providers[int(choice) - 1]
+    if not selected["has_key"]:
+        error(f"No API key configured for {selected['name']}.")
+        error(f"Add {config.PROVIDERS[selected['key']]['key_var']} to your .env file.")
+        return None
+
+    # model selection
+    models = selected["models"]
+    if len(models) == 1:
+        return (selected["key"], models[0])
+
+    print(f"\n  Available models for {selected['name']}:")
+    for j, m in enumerate(models, 1):
+        print(f"    [{j}] {m}")
+
+    mchoice = prompt(f"Select model [1-{len(models)}]: ")
+    if not mchoice.isdigit() or int(mchoice) < 1 or int(mchoice) > len(models):
+        warn("Invalid choice. Using first model.")
+        return (selected["key"], models[0])
+
+    return (selected["key"], models[int(mchoice) - 1])
+
+
+# ─────────────────────────────────────────────
+# SETTINGS MENU
+# ─────────────────────────────────────────────
+
+def settings_menu():
+    divider("SETTINGS")
+
+    # show current config
+    info(f"Active provider : {config.ACTIVE_PROVIDER}")
+    info(f"Active model    : {config.ACTIVE_MODEL}")
+    divider()
+
+    # show all providers
+    print("\n  \033[1mConfigured Providers:\033[0m\n")
+    providers = list_providers()
+    for p in providers:
+        key_status = "\033[92m✓ key set\033[0m" if p["has_key"] else "\033[91m✗ no key\033[0m"
+        active_tag = "  \033[93m← active\033[0m" if p["active"] else ""
+        print(f"    {p['name']:<25} {key_status}{active_tag}")
+        for m in p["models"]:
+            print(f"      └─ {m}")
+    print()
+
+    print("  [1] Switch active provider & model")
+    print("  [2] Test current provider connection")
+    print("  [3] Back")
+    divider()
+
+    choice = prompt("Choice: ")
+
+    if choice == "1":
+        result = provider_select_prompt()
+        if result:
+            prov, model = result
+            # update runtime config
+            config.ACTIVE_PROVIDER = prov
+            config.ACTIVE_MODEL    = model
+            success(f"Switched to: {config.PROVIDERS[prov]['name']} / {model}")
+            info("Note: to make this permanent, update ACTIVE_PROVIDER and ACTIVE_MODEL in .env")
+
+    elif choice == "2":
+        info(f"Testing {config.ACTIVE_PROVIDER} / {config.ACTIVE_MODEL}...")
+        provider = get_provider()
+        if provider.ping():
+            success(f"{provider.label()} is reachable!")
+        else:
+            error(f"{provider.label()} is NOT reachable. Check config / API key / network.")
+
+    elif choice == "3":
+        return
+    else:
+        warn("Invalid choice.")
+
+
+# ─────────────────────────────────────────────
 # DB CONNECTION CHECK
 # ─────────────────────────────────────────────
 
@@ -383,11 +493,11 @@ def check_db():
     try:
         conn = get_connection()
         conn.close()
-        return True
+        success("MariaDB connection OK.")
     except Exception as e:
-        error(f"MariaDB connection failed: {e}")
-        error("Make sure MariaDB is running: sudo systemctl start mariadb")
-        return False
+        error(f"Cannot connect to MariaDB: {e}")
+        error("Make sure MariaDB is running. Exiting.")
+        sys.exit(1)
 
 
 # ─────────────────────────────────────────────
@@ -399,7 +509,8 @@ def main_menu():
         banner()
         print("  \033[92m[1]\033[0m  New Scan")
         print("  \033[92m[2]\033[0m  View History")
-        print("  \033[92m[3]\033[0m  Exit")
+        print("  \033[92m[3]\033[0m  Settings")
+        print("  \033[92m[4]\033[0m  Exit")
         divider()
 
         choice = prompt("metatron> ")
@@ -413,6 +524,10 @@ def main_menu():
             input("\n\033[90mPress Enter to continue...\033[0m")
 
         elif choice == "3":
+            settings_menu()
+            input("\n\033[90mPress Enter to continue...\033[0m")
+
+        elif choice == "4":
             print("\n\033[91m[*] Shutting down Metatron. Stay legal.\033[0m\n")
             sys.exit(0)
 
@@ -425,6 +540,5 @@ def main_menu():
 # ─────────────────────────────────────────────
 
 if __name__ == "__main__":
-    if not check_db():
-        sys.exit(1)
+    check_db()
     main_menu()

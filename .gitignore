@@ -1,8 +1,10 @@
+.env
 reports/
 exports/
 venv/
 __pycache__/
-*.pyc# Byte-compiled / optimized / DLL files
+*.pyc
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class

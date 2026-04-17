@@ -3,6 +3,7 @@
 import os
 import datetime
 import mysql.connector
+from config import DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
@@ -29,10 +30,10 @@ RISK_COLORS = {
 
 def get_connection():
     return mysql.connector.connect(
-        host="localhost",
-        user="metatron",
-        password="123",
-        database="metatron"
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME
     )
 
 
