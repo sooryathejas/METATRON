@@ -7,6 +7,7 @@ Database: metatron
 
 import mysql.connector
 from datetime import datetime
+from config import DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
 
 
 # ─────────────────────────────────────────────
@@ -14,12 +15,12 @@ from datetime import datetime
 # ─────────────────────────────────────────────
 
 def get_connection():
-    """Returns a MariaDB connection. No password (local setup)."""
+    """Returns a MariaDB connection using config.py settings."""
     return mysql.connector.connect(
-        host="localhost",
-        user="metatron",
-        password="123",
-        database="metatron"
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME
     )
 
 
