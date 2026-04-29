@@ -1,0 +1,49 @@
+services:
+
+  mariadb:
+    image: mariadb:latest
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-metatron}
+      MYSQL_USER: ${DB_USER:-metatron}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-metatron_secure_password}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  metatron:
+    build:
+      context: .
+      network: host
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      - DB_HOST=mariadb
+      - DB_USER=${DB_USER:-metatron}
+      - DB_PASSWORD=${DB_PASSWORD:-metatron_secure_password}
+      - DB_NAME=${DB_NAME:-metatron}
+      # LLM Provider Configuration
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      # Ollama configuration
+      - OLLAMA_URL=${OLLAMA_URL:-http://localhost:11434/api/chat}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-metatron-qwen}
+      # OpenAI-compatible configuration
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      - ./reports:/app/reports
+    stdin_open: true
+    tty: true
+
+volumes:
+  mariadb_data:
+  ollama_data:

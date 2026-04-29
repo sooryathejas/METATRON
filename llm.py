@@ -1,22 +1,50 @@
 #!/usr/bin/env python3
 """
 METATRON - llm.py
-Ollama interface for metatron-qwen model.
+Multi-provider LLM interface supporting Ollama and OpenAI-compatible APIs.
 Builds prompts, handles AI responses, runs tool dispatch loop.
-Model: metatron-qwen (fine-tuned from huihui_ai/qwen3.5-abliterated:9b)
+
+Supported Providers:
+- Ollama: Local or remote Ollama instances
+- OpenAI-compatible: OpenAI, vLLM, LM Studio, local servers
 """
 
+import os
 import re
 import requests
 import json
+from pathlib import Path
+
+# Load .env file automatically if it exists
+env_path = Path(__file__).parent / ".env"
+if env_path.exists():
+    from dotenv import load_dotenv
+    load_dotenv(env_path)
+
 from tools import run_tool_by_command, run_nmap, run_curl_headers
 from search import handle_search_dispatch
 
-OLLAMA_URL  = "http://localhost:11434/api/chat"
-MODEL_NAME  = "metatron-qwen"
+# ─────────────────────────────────────────────
+# ENVIRONMENT VARIABLES
+# ─────────────────────────────────────────────
+
+# Provider selection: "ollama" or "openai"
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama").lower()
+
+# Ollama configuration
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "metatron-qwen")
+
+# OpenAI-compatible configuration
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+# Shared settings
 MAX_TOKENS = 8192
-MAX_TOOL_LOOPS = 9   # max times AI can call tools per session
-OLLAMA_TIMEOUT = 600 
+MAX_TOOL_LOOPS = 9
+OLLAMA_TIMEOUT = 600
+OPENAI_TIMEOUT = 120
 
 # ─────────────────────────────────────────────
 # SYSTEM PROMPT
@@ -52,7 +80,7 @@ NOTES: <any notes>
 End your analysis with:
 RISK_LEVEL: <CRITICAL|HIGH|MEDIUM|LOW>
 SUMMARY: <2-3 sentence overall summary>
-IMPORTANT: Never use markdown bold (**text**) or 
+IMPORTANT: Never use markdown bold (**text**) or
 headers (## text). Plain text only. No exceptions.
 IMPORTANT RULES FOR ACCURACY:
 - nmap filtered or no-response means INCONCLUSIVE not vulnerable
@@ -65,37 +93,136 @@ IMPORTANT RULES FOR ACCURACY:
 
 
 # ─────────────────────────────────────────────
-# OLLAMA API CALL
+# LLM CLIENT CLASS
+# ─────────────────────────────────────────────
+
+class LLMClient:
+    """Unified LLM client supporting multiple providers."""
+
+    def __init__(self):
+        self.provider = LLM_PROVIDER
+        if self.provider not in ("ollama", "openai"):
+            raise ValueError(f"Unsupported LLM_PROVIDER: {self.provider}. Use 'ollama' or 'openai'.")
+
+    def chat(self, messages: list, temperature: float = 0.7, max_tokens: int = MAX_TOKENS) -> str:
+        """
+        Send a chat request to the configured LLM provider.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+            temperature: Sampling temperature (0.0-1.0)
+            max_tokens: Maximum tokens to generate
+
+        Returns:
+            Model response content as string
+        """
+        if self.provider == "ollama":
+            return self._call_ollama(messages, temperature, max_tokens)
+        elif self.provider == "openai":
+            return self._call_openai(messages, temperature, max_tokens)
+
+    def _call_ollama(self, messages: list, temperature: float, max_tokens: int) -> str:
+        """Call Ollama API."""
+        try:
+            payload = {
+                "model": OLLAMA_MODEL,
+                "messages": messages,
+                "stream": False,
+                "options": {
+                    "num_predict": max_tokens,
+                    "temperature": temperature,
+                    "top_p": 0.9,
+                }
+            }
+            print(f"\n[*] Sending to Ollama ({OLLAMA_MODEL})...")
+            resp = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT)
+            resp.raise_for_status()
+            data = resp.json()
+            response = data.get("message", {}).get("content", "").strip()
+            if not response:
+                return "[!] Model returned empty response."
+            return response
+        except requests.exceptions.ConnectionError:
+            return "[!] Cannot connect to Ollama. Is it running? Try: ollama serve"
+        except requests.exceptions.Timeout:
+            return "[!] Ollama timed out. Model may be loading, try again."
+        except requests.exceptions.HTTPError as e:
+            return f"[!] Ollama HTTP error: {e}"
+        except Exception as e:
+            return f"[!] Unexpected error: {e}"
+
+    def _call_openai(self, messages: list, temperature: float, max_tokens: int) -> str:
+        """Call OpenAI-compatible API."""
+        try:
+            # Check for API key
+            if not OPENAI_API_KEY:
+                # For local servers, API key may not be required
+                headers = {"Content-Type": "application/json"}
+            else:
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {OPENAI_API_KEY}"
+                }
+
+            payload = {
+                "model": OPENAI_MODEL,
+                "messages": messages,
+                "stream": False,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+
+            # Construct the chat completions endpoint URL
+            base = OPENAI_BASE_URL.rstrip("/")
+            endpoint = f"{base}/chat/completions"
+
+            print(f"\n[*] Sending to {self.provider} ({OPENAI_MODEL})...")
+            resp = requests.post(endpoint, json=payload, headers=headers, timeout=OPENAI_TIMEOUT)
+            resp.raise_for_status()
+            data = resp.json()
+
+            # OpenAI-compatible response format
+            choices = data.get("choices", [])
+            if not choices:
+                return "[!] Model returned empty response."
+
+            response = choices[0].get("message", {}).get("content", "").strip()
+            if not response:
+                return "[!] Model returned empty response."
+
+            return response
+        except requests.exceptions.ConnectionError:
+            return f"[!] Cannot connect to {self.provider}. Check OPENAI_BASE_URL: {OPENAI_BASE_URL}"
+        except requests.exceptions.Timeout:
+            return f"[!] {self.provider} timed out. Try again."
+        except requests.exceptions.HTTPError as e:
+            return f"[!] {self.provider} HTTP error: {e}"
+        except Exception as e:
+            return f"[!] Unexpected error: {e}"
+
+
+# Global LLM client instance
+_llm_client = None
+
+def get_llm_client() -> LLMClient:
+    """Get or create the global LLM client instance."""
+    global _llm_client
+    if _llm_client is None:
+        _llm_client = LLMClient()
+    return _llm_client
+
+
+# ─────────────────────────────────────────────
+# BACKWARD COMPATIBILITY FUNCTIONS
 # ─────────────────────────────────────────────
 
 def ask_ollama(messages: list) -> str:
-    try:
-        payload = {
-            "model":  MODEL_NAME,
-            "messages": messages,
-            "stream": False,
-            "options": {
-                "num_predict": MAX_TOKENS,
-                "temperature": 0.7,
-                "top_p": 0.9,
-            }
-        }
-        print(f"\n[*] Sending to {MODEL_NAME}...")
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-        response = data.get("message", {}).get("content", "").strip()
-        if not response:
-            return "[!] Model returned empty response."
-        return response
-    except requests.exceptions.ConnectionError:
-        return "[!] Cannot connect to Ollama. Is it running? Try: ollama serve"
-    except requests.exceptions.Timeout:
-        return "[!] Ollama timed out. Model may be loading, try again."
-    except requests.exceptions.HTTPError as e:
-        return f"[!] Ollama HTTP error: {e}"
-    except Exception as e:
-        return f"[!] Unexpected error: {e}"
+    """
+    Backward compatible wrapper for Ollama calls.
+    Now uses the unified LLMClient internally.
+    """
+    client = get_llm_client()
+    return client.chat(messages)
 
 
 # ─────────────────────────────────────────────
@@ -129,24 +256,16 @@ def summarize_tool_output(raw_output: str) -> str:
         return raw_output
 
     try:
-        payload = {
-            "model":  MODEL_NAME,
-            "messages": [
-    {"role": "system", "content": "You are a security data compressor. Extract only security-relevant facts. Return maximum 15 bullet points. Plain text only. No markdown."},
-    {"role": "user", "content": f"Compress this tool output:\n{raw_output[:6000]}"} ],
-            "stream": False,
-            "options": {
-                "num_predict": 512,
-                "temperature": 0.2,
-                "top_p": 0.9,
-            }
-        }
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=120)
-        resp.raise_for_status()
-        summary = resp.json().get("message", {}).get("content", "").strip()
+        client = get_llm_client()
+        messages = [
+            {"role": "system", "content": "You are a security data compressor. Extract only security-relevant facts. Return maximum 15 bullet points. Plain text only. No markdown."},
+            {"role": "user", "content": f"Compress this tool output:\n{raw_output[:6000]}"}
+        ]
+        summary = client.chat(messages, temperature=0.2, max_tokens=512)
         return summary if summary else raw_output
     except Exception:
         return raw_output
+
 def run_tool_calls(calls: list) -> str:
     """
     Execute all tool/search calls and return combined results string.
@@ -176,8 +295,10 @@ def run_tool_calls(calls: list) -> str:
 # ─────────────────────────────────────────────
 # PARSER — extract structured data from AI output
 # ─────────────────────────────────────────────
+
 def _clean(line: str) -> str:
     return re.sub(r'\*+', '', line).strip()
+
 def parse_vulnerabilities(response: str) -> list:
     """
     Parse VULN: lines from AI response into dicts.
@@ -297,6 +418,8 @@ def parse_summary(response: str) -> str:
 # ─────────────────────────────────────────────
 
 def analyse_target(target: str, raw_scan: str) -> dict:
+    client = get_llm_client()
+
     messages = [
         {
             "role": "system",
@@ -317,7 +440,7 @@ List all vulnerabilities, fixes, and suggest exploits where applicable."""
     final_response = ""
 
     for loop in range(MAX_TOOL_LOOPS):
-        response = ask_ollama(messages)
+        response = client.chat(messages)
 
         print(f"\n{'─'*60}")
         print(f"[METATRON - Round {loop + 1}]")
@@ -362,20 +485,35 @@ If analysis is complete, give the final RISK_LEVEL and SUMMARY."""
         "summary":         summary,
         "raw_scan":        raw_scan
     }
+
+
 # ─────────────────────────────────────────────
 # QUICK TEST
 # ─────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("[ llm.py test — direct AI query ]\n")
+    print("[ llm.py test — multi-provider LLM query ]\n")
 
-    # test if ollama is reachable
-    try:
-        r = requests.get("http://localhost:11434", timeout=5)
-        print("[+] Ollama is running.")
-    except Exception:
-        print("[!] Ollama not reachable. Run: ollama serve")
-        exit(1)
+    client = get_llm_client()
+    print(f"Provider: {client.provider}")
+
+    if client.provider == "ollama":
+        print(f"Ollama URL: {OLLAMA_URL}")
+        print(f"Model: {OLLAMA_MODEL}")
+        # test if ollama is reachable
+        try:
+            r = requests.get("http://localhost:11434", timeout=5)
+            print("[+] Ollama is running.")
+        except Exception:
+            print("[!] Ollama not reachable. Run: ollama serve")
+            exit(1)
+    elif client.provider == "openai":
+        print(f"Base URL: {OPENAI_BASE_URL}")
+        print(f"Model: {OPENAI_MODEL}")
+        if OPENAI_API_KEY:
+            print("[+] API key configured")
+        else:
+            print("[!] No API key set (may work with local servers)")
 
     target = input("Test target: ").strip()
     test_scan = f"Test recon for {target} — nmap and whois data would appear here."

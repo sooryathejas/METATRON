@@ -29,10 +29,10 @@ RISK_COLORS = {
 
 def get_connection():
     return mysql.connector.connect(
-        host="localhost",
-        user="metatron",
-        password="123",
-        database="metatron"
+        host=os.environ.get("DB_HOST", "localhost"),
+        user=os.environ.get("DB_USER", "metatron"),
+        password=os.environ.get("DB_PASSWORD", "123"),
+        database=os.environ.get("DB_NAME", "metatron")
     )
 
 
