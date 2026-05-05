@@ -15,10 +15,12 @@ from db import (
     save_exploit,
     save_summary,
     get_all_history,
+    get_history_by_sl_no,
     get_session,
     get_vulnerabilities,
     get_fixes,
     get_exploits,
+    edit_history_entry,
     edit_vulnerability,
     edit_fix,
     edit_exploit,
@@ -180,37 +182,90 @@ def new_scan():
 # ─────────────────────────────────────────────
 
 def view_history():
-    divider("SCAN HISTORY")
-    rows = get_all_history()
+    while True:
+        divider("SCAN HISTORY")
+        rows = get_all_history()
 
-    if not rows:
-        warn("No scans in database yet.")
-        return
+        if not rows:
+            warn("No scans in database yet.")
+            return
 
-    print_history(rows)
+        print_history(rows)
+        print("  [1] View session details")
+        print("  [2] Edit history entry (target/status)")
+        print("  [3] Delete a session by SL#")
+        print("  [4] Back")
+        divider()
 
-    sl_no_str = prompt("Enter SL# to view details (or press Enter to go back): ")
-    if not sl_no_str:
-        return
+        choice = prompt("Choice: ")
 
-    try:
-        sl_no = int(sl_no_str)
-    except ValueError:
-        error("Invalid SL#.")
-        return
+        if choice == "1":
+            sl_no_str = prompt("Enter SL# to view details: ")
+            if not sl_no_str.isdigit():
+                error("Invalid SL#.")
+                continue
 
-    data = get_session(sl_no)
-    if not data["history"]:
-        error(f"SL# {sl_no} not found.")
-        return
+            sl_no = int(sl_no_str)
+            data = get_session(sl_no)
+            if not data["history"]:
+                error(f"SL# {sl_no} not found.")
+                continue
 
-    print_session(data)
+            print_session(data)
 
-    if confirm("Export this session?"):
-        export_menu(data)
+            if confirm("Export this session?"):
+                export_menu(data)
 
-    if confirm("Edit or delete anything in this session?"):
-        edit_delete_menu(sl_no)
+            if confirm("Edit or delete anything in this session?"):
+                edit_delete_menu(sl_no)
+
+        elif choice == "2":
+            sl_no_str = prompt("Enter SL# to edit history entry: ")
+            if not sl_no_str.isdigit():
+                error("Invalid SL#.")
+                continue
+
+            sl_no = int(sl_no_str)
+            row = get_history_by_sl_no(sl_no)
+            if not row:
+                error(f"SL# {sl_no} not found.")
+                continue
+
+            print(f"Current: SL# {row[0]} | target={row[1]} | date={row[2]} | status={row[3]}")
+            print("  Fields: target / status")
+            field = prompt("Field to edit: ").lower()
+            if field not in ("target", "status"):
+                error("Invalid field. Use target or status.")
+                continue
+
+            value = prompt(f"New value for '{field}': ")
+            if not value:
+                warn("Value cannot be empty.")
+                continue
+
+            edit_history_entry(sl_no, field, value)
+
+        elif choice == "3":
+            sl_no_str = prompt("Enter SL# to delete full session: ")
+            if not sl_no_str.isdigit():
+                error("Invalid SL#.")
+                continue
+
+            sl_no = int(sl_no_str)
+            row = get_history_by_sl_no(sl_no)
+            if not row:
+                error(f"SL# {sl_no} not found.")
+                continue
+
+            if confirm(f"\n\033[91mPermanently delete ENTIRE session SL# {sl_no} from all tables?\033[0m"):
+                delete_full_session(sl_no)
+                success(f"Session SL# {sl_no} wiped.")
+
+        elif choice == "4" or choice == "":
+            return
+
+        else:
+            warn("Invalid choice.")
 
 
 # ─────────────────────────────────────────────
