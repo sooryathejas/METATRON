@@ -115,6 +115,16 @@ def get_all_history():
     return rows
 
 
+def get_history_by_sl_no(sl_no: int):
+    """Return one history row by sl_no, or None if not found."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT sl_no, target, scan_date, status FROM history WHERE sl_no = %s", (sl_no,))
+    row = c.fetchone()
+    conn.close()
+    return row
+
+
 def get_session(sl_no: int) -> dict:
     """Return everything linked to a sl_no across all tables."""
     conn = get_connection()
@@ -229,6 +239,24 @@ def edit_summary_risk(sl_no: int, risk_level: str):
     conn.commit()
     conn.close()
     print(f"[+] Summary risk_level updated for SL#{sl_no}")
+
+
+def edit_history_entry(sl_no: int, field: str, value: str):
+    """Edit target or status in history for a given sl_no."""
+    allowed = {"target", "status"}
+    if field not in allowed:
+        print(f"[!] Invalid field: {field}. Allowed: {allowed}")
+        return
+
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        f"UPDATE history SET {field} = %s WHERE sl_no = %s",
+        (value, sl_no)
+    )
+    conn.commit()
+    conn.close()
+    print(f"[+] history.{field} updated for SL#{sl_no}")
 
 
 # ─────────────────────────────────────────────

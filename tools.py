@@ -2,10 +2,11 @@
 """
 METATRON - tools.py
 Recon tool runners — all output returned as strings to feed into the LLM.
-Tools used: nmap, whois, whatweb, curl, dig, nikto
+Tools used: nmap, whois, whatweb, curl, dig, nikto, sslscan, testssl.sh
 OS: Parrot OS (all these tools are pre-installed or easily available)
 """
 
+import re
 import subprocess
 
 
@@ -132,6 +133,78 @@ def run_nikto(target: str) -> str:
     return run_tool(["nikto", "-h", target, "-nointeractive"], timeout=300)
 
 
+def run_sslscan(target: str) -> str:
+    """
+    sslscan — quick TLS/SSL scan for certificates, protocol support and ciphers.
+    """
+    print(f"  [*] sslscan --no-colour {target}")
+    output = run_tool(["sslscan", "--no-colour", target], timeout=240)
+    metadata = extract_ssl_metadata("sslscan", output)
+    return f"{metadata}\n\n[SSLSCAN RAW OUTPUT]\n{output}"
+
+
+def run_testssl(target: str) -> str:
+    """
+    testssl.sh — deeper TLS/SSL analysis for protocol, cipher and cert vulnerabilities.
+    """
+    print(f"  [*] testssl.sh --quiet {target}")
+    output = run_tool(["testssl.sh", "--quiet", target], timeout=300)
+    metadata = extract_ssl_metadata("testssl.sh", output)
+    return f"{metadata}\n\n[TESTSSL.SH RAW OUTPUT]\n{output}"
+
+
+def extract_ssl_metadata(tool_name: str, output: str) -> str:
+    """
+    Extract security-relevant SSL/TLS metadata from sslscan or testssl.sh output.
+    Returns a short structured summary to improve AI context.
+    """
+    if not output or output.startswith("[!]"):
+        return f"[SSL METADATA] No valid {tool_name} output available."
+
+    subject = re.search(r"subject:\s*(.+)", output, re.IGNORECASE)
+    issuer = re.search(r"issuer:\s*(.+)", output, re.IGNORECASE)
+    not_before = re.search(r"not before:\s*(.+)", output, re.IGNORECASE)
+    not_after = re.search(r"not after\s*:\s*(.+)", output, re.IGNORECASE)
+
+    protocol_lines = []
+    cipher_lines = []
+    warning_lines = []
+
+    for line in output.splitlines():
+        text = line.strip()
+        if re.search(r"^(SSLv2|SSLv3|TLSv1(?:\.\d)?)", text, re.IGNORECASE) and re.search(r"offered|not offered|supported|not supported|yes|no|A|B|C|D", text, re.IGNORECASE):
+            protocol_lines.append(text)
+        if re.search(r"^(TLS|SSL).+ - [A-Z]$", text):
+            cipher_lines.append(text)
+        if re.search(r"\b(weak|insecure|vulnerable|POODLE|BEAST|FREAK|LOGJAM|RC4|SWEET32|Heartbleed|insecure renegotiation|anonymous DH)\b", text, re.IGNORECASE):
+            warning_lines.append(text)
+
+    metadata = ["[SSL METADATA]"]
+    metadata.append(f"Tool: {tool_name}")
+    if subject:
+        metadata.append(f"Subject: {subject.group(1).strip()}")
+    if issuer:
+        metadata.append(f"Issuer: {issuer.group(1).strip()}")
+    if not_before:
+        metadata.append(f"Valid from: {not_before.group(1).strip()}")
+    if not_after:
+        metadata.append(f"Valid until: {not_after.group(1).strip()}")
+    if protocol_lines:
+        metadata.append("Supported protocol lines:")
+        metadata.extend(protocol_lines[:8])
+    if cipher_lines:
+        metadata.append("Sample ciphers:")
+        metadata.extend(cipher_lines[:8])
+    if warning_lines:
+        metadata.append("Potential SSL issues:")
+        metadata.extend(warning_lines[:8])
+
+    if len(metadata) == 1:
+        metadata.append("No SSL metadata extracted.")
+
+    return "\n".join(metadata)
+
+
 # ─────────────────────────────────────────────
 # MAIN RECON PIPELINE
 # ─────────────────────────────────────────────
@@ -143,6 +216,8 @@ TOOLS_MENU = {
     "4": ("curl headers", run_curl_headers),
     "5": ("dig DNS",      run_dig),
     "6": ("nikto",        run_nikto),
+    "7": ("sslscan",      run_sslscan),
+    "8": ("testssl.sh",   run_testssl),
 }
 
 
@@ -189,7 +264,7 @@ def format_recon_for_llm(results: dict) -> str:
     return output
 
 
-ALLOWED_TOOLS = {"nmap", "whois", "whatweb", "curl", "dig", "nikto"}
+ALLOWED_TOOLS = {"nmap", "whois", "whatweb", "curl", "dig", "nikto", "sslscan", "testssl.sh"}
 
 def run_tool_by_command(command_str: str) -> str:
     parts = command_str.strip().split()
