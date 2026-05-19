@@ -353,3 +353,34 @@ This tool is intended for **educational purposes and authorized penetration test
 ## 📄 License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+## Quick Start
+
+```bash
+# Clone and setup
+git clone https://github.com/sooryathejas/METATRON.git
+cd METATRON
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start Ollama (required for AI features)
+ollama serve &
+
+# Run METATRON
+python metatron.py
+```
+
+## Architecture
+
+METATRON is organized into several core modules:
+
+- **metatron.py** - Main CLI entry point, wires all modules together
+- **llm.py** - Ollama interface, prompt building, tool dispatch loop
+- **db.py** - MariaDB operations (sessions, vulnerabilities, exploits)
+- **tools.py** - Recon tool wrappers (nmap, curl, whois, etc.)
+- **search.py** - CVE/search database integration
+
+## License
+
+MIT License - see LICENSE file for details.
