@@ -7,6 +7,8 @@ OS: Parrot OS (all these tools are pre-installed or easily available)
 """
 
 import subprocess
+import re
+from urllib.parse import urljoin, urlparse
 
 
 # ─────────────────────────────────────────────
@@ -78,27 +80,47 @@ def run_whatweb(target: str) -> str:
     return run_tool(["whatweb", "-a", "3", target], timeout=60)
 
 
+def _redirect_stays_on_target(location: str, target: str) -> bool:
+    if not location:
+        return False
+    parsed = urlparse(location)
+    if not parsed.netloc:
+        return True  # redirect relative, same host
+    return (parsed.hostname or "").lower() == target.lower()
+
+
+def _fetch_headers_no_redirect(url: str) -> tuple:
+    command = ["curl", "-sI", "--max-time", "10"]
+    if urlparse(url).scheme.lower() == "https":
+        command.append("-k")
+    result = run_tool(command + [url], timeout=20)
+    location = ""
+    for line in result.splitlines():
+        if line.lower().startswith("location:"):
+            location = line.split(":", 1)[1].strip()
+            break
+    return result, location
+
+
+def _fetch_headers_with_safe_redirect(url: str, target: str) -> str:
+    result, location = _fetch_headers_no_redirect(url)
+    if not location:
+        return result
+    if not _redirect_stays_on_target(location, target):
+        return f"[!] Redirect to different host blocked: {location}"
+    return _fetch_headers_no_redirect(urljoin(url, location))[0]
+
+
 def run_curl_headers(target: str) -> str:
     """
     curl -sI — fetch HTTP headers only
     Reveals: server software, X-Powered-By, cookies, security headers (or lack of them)
     """
     print(f"  [*] curl -sI http://{target}")
-    output = run_tool([
-        "curl", "-sI",
-        "--max-time", "10",
-        "--location",          # follow redirects
-        f"http://{target}"
-    ], timeout=20)
+    output = _fetch_headers_with_safe_redirect(f"http://{target}", target)
 
     # also try https
-    https_output = run_tool([
-        "curl", "-sI",
-        "--max-time", "10",
-        "--location",
-        "-k",                  # ignore cert errors
-        f"https://{target}"
-    ], timeout=20)
+    https_output = _fetch_headers_with_safe_redirect(f"https://{target}", target)
 
     return f"[HTTP Headers]\n{output}\n\n[HTTPS Headers]\n{https_output}"
 
@@ -190,8 +212,27 @@ def format_recon_for_llm(results: dict) -> str:
 
 
 ALLOWED_TOOLS = {"nmap", "whois", "whatweb", "curl", "dig", "nikto"}
+_IP_OR_HOST_RE = re.compile(
+    r'^(?:\d{1,3}(?:\.\d{1,3}){3}|[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?'
+    r'(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)+)$'
+)
 
-def run_tool_by_command(command_str: str) -> str:
+
+def _looks_like_host(arg: str):
+    candidate = arg
+    if "://" in arg:
+        candidate = urlparse(arg).hostname or ""
+    if not candidate or candidate.startswith("-"):
+        return None
+    return candidate if _IP_OR_HOST_RE.match(candidate) else None
+
+
+def _matches_target(host: str, target: str) -> bool:
+    host, target = host.lower(), target.lower()
+    return host == target or host.endswith("." + target)
+
+
+def run_tool_by_command(command_str: str, target: str) -> str:
     parts = command_str.strip().split()
     if not parts:
         return "[!] Empty command."
@@ -200,6 +241,14 @@ def run_tool_by_command(command_str: str) -> str:
     tool = parts[0].lower().split("/")[-1]  # handles /bin/nmap etc
     if tool not in ALLOWED_TOOLS:
         return f"[!] Tool '{parts[0]}' is not permitted. Allowed: {ALLOWED_TOOLS}"
+
+    for arg in parts[1:]:
+        host = _looks_like_host(arg)
+        if host and not _matches_target(host, target):
+            return (
+                f"[!] Blocked: argument '{arg}' targets '{host}', which is outside "
+                f"the authorized session target '{target}'. Tool not run."
+            )
     
     return run_tool(parts)
 
