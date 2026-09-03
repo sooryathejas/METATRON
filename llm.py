@@ -147,7 +147,7 @@ def summarize_tool_output(raw_output: str) -> str:
         return summary if summary else raw_output
     except Exception:
         return raw_output
-def run_tool_calls(calls: list) -> str:
+def run_tool_calls(calls: list, target: str) -> str:
     """
     Execute all tool/search calls and return combined results string.
     """
@@ -159,7 +159,7 @@ def run_tool_calls(calls: list) -> str:
         print(f"\n  [DISPATCH] {call_type}: {call_content}")
 
         if call_type == "TOOL":
-            output = run_tool_by_command(call_content)
+            output = run_tool_by_command(call_content, target)
         elif call_type == "SEARCH":
             output = handle_search_dispatch(call_content)
         else:
@@ -331,7 +331,7 @@ List all vulnerabilities, fixes, and suggest exploits where applicable."""
             print("\n[*] No tool calls. Analysis complete.")
             break
 
-        tool_results = run_tool_calls(tool_calls)
+        tool_results = run_tool_calls(tool_calls, target)
 
         # add assistant response and tool results as new messages
         messages.append({
