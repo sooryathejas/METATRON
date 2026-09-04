@@ -7,6 +7,7 @@ Model: metatron-qwen (fine-tuned from huihui_ai/qwen3.5-abliterated:9b)
 """
 
 import re
+import os
 import requests
 import json
 from tools import run_tool_by_command, run_nmap, run_curl_headers
@@ -16,7 +17,8 @@ OLLAMA_URL  = "http://localhost:11434/api/chat"
 MODEL_NAME  = "metatron-qwen"
 MAX_TOKENS = 8192
 MAX_TOOL_LOOPS = 9   # max times AI can call tools per session
-OLLAMA_TIMEOUT = 600 
+OLLAMA_TIMEOUT = int(os.environ.get("METATRON_OLLAMA_TIMEOUT", "600"))
+SUMMARY_TIMEOUT = int(os.environ.get("METATRON_SUMMARY_TIMEOUT", "120"))
 
 # ─────────────────────────────────────────────
 # SYSTEM PROMPT
@@ -141,7 +143,7 @@ def summarize_tool_output(raw_output: str) -> str:
                 "top_p": 0.9,
             }
         }
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=120)
+        resp = requests.post(OLLAMA_URL, json=payload, timeout=SUMMARY_TIMEOUT)
         resp.raise_for_status()
         summary = resp.json().get("message", {}).get("content", "").strip()
         return summary if summary else raw_output
