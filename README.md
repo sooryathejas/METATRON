@@ -1,6 +1,9 @@
 # METATRON
+
 AI-powered penetration testing assistant using local LLM on linux (Parrot OS)
+
 # 🔱 METATRON
+
 ### AI-Powered Penetration Testing Assistant
 
 <p align="center">
@@ -34,12 +37,13 @@ You give it a target IP or domain. It runs real recon tools (nmap, whois, whatwe
 - ✏️ **Edit / Delete** — modify any saved result directly from the CLI
 - 🔁 **Agentic Loop** — AI can request more tool runs mid-analysis
 - 🚫 **No API Keys** — everything is free and local
--📤 Export Reports
+  -📤 Export Reports
 
 Metatron allows you to export scan results into clean, shareable report formats by selecting '2.view history'->select slno and export
 
 📄 PDF — professional vulnerability reports
 🌐 HTML — browser-viewable reports
+
 ---
 
 ## 🖥️ Screenshots
@@ -69,7 +73,7 @@ Metatron allows you to export scan results into clean, shareable report formats 
 ## 🧱 Tech Stack
 
 | Component  | Technology                          |
-|------------|-------------------------------------|
+| ---------- | ----------------------------------- |
 | Language   | Python 3                            |
 | AI Model   | metatron-qwen (fine-tuned Qwen 3.5) |
 | Base Model | huihui_ai/qwen3.5-abliterated:9b    |
@@ -108,6 +112,22 @@ pip install -r requirements.txt
 sudo apt install nmap whois whatweb curl dnsutils nikto
 ```
 
+#### 4.1 macOS users
+
+> Including arm64 architecture
+
+```bash
+brew install nmap whois curl nikto mysql
+```
+
+> Install whatweb from [source](https://github.com/urbanadventurer/WhatWeb/wiki/Installation)
+
+> Install bind as substitute for dnsutils
+
+```bash
+brew install bind
+```
+
 ---
 
 ## 🤖 AI Model Setup
@@ -125,9 +145,11 @@ ollama pull huihui_ai/qwen3.5-abliterated:9b
 ```
 
 > ⚠️ This model requires at least 8.4 GB of RAM. If your system has less, use the 4b variant:
+>
 > ```bash
 > ollama pull huihui_ai/qwen3.5-abliterated:4b
 > ```
+>
 > Then edit `Modelfile` and change the FROM line to the 4b model.
 
 ### Step 3 — Build the custom metatron-qwen model
@@ -139,6 +161,7 @@ ollama create metatron-qwen -f Modelfile
 ```
 
 This creates your local `metatron-qwen` model with:
+
 - 16,384 token context window
 - Temperature: 0.7
 - Top-k: 10
@@ -261,6 +284,7 @@ python metatron.py
 ### Walkthrough
 
 **1. Main menu appears:**
+
 ```
   [1]  New Scan
   [2]  View History
@@ -268,15 +292,19 @@ python metatron.py
 ```
 
 **2. Select [1] New Scan → enter your target:**
+
 ```
 [?] Enter target IP or domain: 192.168.1.1
 ```
+
 or
+
 ```
 [?] Enter target IP or domain: example.com
 ```
 
 **3. Select recon tools to run:**
+
 ```
   [1] nmap
   [2] whois
@@ -346,6 +374,7 @@ This tool is intended for **educational purposes and authorized penetration test
 ## 👤 Author
 
 **Soorya Thejas**
+
 - GitHub: [@sooryathejas](https://github.com/sooryathejas)
 
 ---
