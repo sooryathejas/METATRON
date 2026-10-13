@@ -2,6 +2,15 @@
 
 import os
 import datetime
+import ssl
+
+if not hasattr(ssl, "PROTOCOL_TLSv1"):
+    ssl.PROTOCOL_TLSv1 = ssl.PROTOCOL_TLS
+if not hasattr(ssl, "PROTOCOL_TLSv1_1"):
+    ssl.PROTOCOL_TLSv1_1 = ssl.PROTOCOL_TLS
+if not hasattr(ssl, "PROTOCOL_TLSv1_2"):
+    ssl.PROTOCOL_TLSv1_2 = ssl.PROTOCOL_TLS
+
 import mysql.connector
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors

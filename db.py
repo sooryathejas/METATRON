@@ -5,6 +5,16 @@ MariaDB connection + all read/write/edit/delete operations
 Database: metatron
 """
 
+
+import ssl
+
+if not hasattr(ssl, "PROTOCOL_TLSv1"):
+    ssl.PROTOCOL_TLSv1 = ssl.PROTOCOL_TLS
+if not hasattr(ssl, "PROTOCOL_TLSv1_1"):
+    ssl.PROTOCOL_TLSv1_1 = ssl.PROTOCOL_TLS
+if not hasattr(ssl, "PROTOCOL_TLSv1_2"):
+    ssl.PROTOCOL_TLSv1_2 = ssl.PROTOCOL_TLS
+
 import mysql.connector
 from datetime import datetime
 
