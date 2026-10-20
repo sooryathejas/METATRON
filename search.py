@@ -7,8 +7,21 @@ Used by LLM tool dispatch when AI writes [SEARCH: query]
 """
 
 import requests
+import os
+import uuid
+from dataclasses import dataclass, field
 from bs4 import BeautifulSoup
 from ddgs import DDGS   # pip install duckduckgo-search
+
+
+@dataclass(frozen=True)
+class SearchContext:
+    """Provider choice and opaque identity owned by one analysis, not a client."""
+
+    provider: str = field(default_factory=lambda: os.environ.get(
+        "METATRON_SEARCH_PROVIDER", "duckduckgo"
+    ).strip().lower())
+    session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
 
 # ─────────────────────────────────────────────
@@ -125,11 +138,20 @@ def fetch_page(url: str, max_chars: int = 3000) -> str:
 # TOOL DISPATCH HANDLER
 # ─────────────────────────────────────────────
 
-def handle_search_dispatch(query: str) -> str:
+def handle_search_dispatch(query: str, context: SearchContext = None) -> str:
     """
     Called by llm.py when AI writes [SEARCH: something].
     Smartly routes to CVE lookup, exploit search, or general search.
     """
+    context = context or SearchContext()
+    if context.provider == "none":
+        return "[!] Web search is disabled (METATRON_SEARCH_PROVIDER=none)."
+    if context.provider == "parallel":
+        from parallel_search import dispatch
+        return dispatch(query.strip(), context.session_id)
+    if context.provider != "duckduckgo":
+        return "[!] Unknown METATRON_SEARCH_PROVIDER. Use duckduckgo, parallel or none."
+
     query = query.strip()
 
     # CVE pattern — CVE-YYYY-NNNNN
@@ -164,11 +186,11 @@ if __name__ == "__main__":
 
     if choice == "1":
         q = input("Query: ").strip()
-        print(web_search(q))
+        print(handle_search_dispatch(q))
 
     elif choice == "2":
         cve = input("CVE ID (e.g. CVE-2021-44228): ").strip()
-        print(search_cve(cve))
+        print(handle_search_dispatch(cve))
 
     elif choice == "3":
         url = input("URL: ").strip()

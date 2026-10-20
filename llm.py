@@ -10,7 +10,7 @@ import re
 import requests
 import json
 from tools import run_tool_by_command, run_nmap, run_curl_headers
-from search import handle_search_dispatch
+from search import SearchContext, handle_search_dispatch
 
 OLLAMA_URL  = "http://localhost:11434/api/chat"
 MODEL_NAME  = "metatron-qwen"
@@ -28,7 +28,7 @@ You are precise, technical, and direct. No fluff.
 You have access to real tools. To use them, write tags in your response:
 
   [TOOL: nmap -sV 192.168.1.1]       → runs nmap or any CLI tool
-  [SEARCH: CVE-2021-44228 exploit]   → searches the web via DuckDuckGo
+  [SEARCH: CVE-2021-44228 exploit]   → searches the web via the configured provider
 
 Rules:
 - Always analyze scan data thoroughly before suggesting exploits
@@ -147,13 +147,14 @@ def summarize_tool_output(raw_output: str) -> str:
         return summary if summary else raw_output
     except Exception:
         return raw_output
-def run_tool_calls(calls: list) -> str:
+def run_tool_calls(calls: list, search_context: SearchContext = None) -> str:
     """
     Execute all tool/search calls and return combined results string.
     """
     if not calls:
         return ""
 
+    search_context = search_context or SearchContext()
     results = ""
     for call_type, call_content in calls:
         print(f"\n  [DISPATCH] {call_type}: {call_content}")
@@ -161,7 +162,7 @@ def run_tool_calls(calls: list) -> str:
         if call_type == "TOOL":
             output = run_tool_by_command(call_content)
         elif call_type == "SEARCH":
-            output = handle_search_dispatch(call_content)
+            output = handle_search_dispatch(call_content, search_context)
         else:
             output = f"[!] Unknown call type: {call_type}"
 
@@ -297,6 +298,7 @@ def parse_summary(response: str) -> str:
 # ─────────────────────────────────────────────
 
 def analyse_target(target: str, raw_scan: str) -> dict:
+    search_context = SearchContext()
     messages = [
         {
             "role": "system",
@@ -331,7 +333,7 @@ List all vulnerabilities, fixes, and suggest exploits where applicable."""
             print("\n[*] No tool calls. Analysis complete.")
             break
 
-        tool_results = run_tool_calls(tool_calls)
+        tool_results = run_tool_calls(tool_calls, search_context)
 
         # add assistant response and tool results as new messages
         messages.append({
