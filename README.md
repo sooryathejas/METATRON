@@ -238,6 +238,30 @@ CREATE TABLE summary (
 
 ## 🚀 Usage
 
+### Optional Parallel web search
+
+DuckDuckGo remains the default search provider. To use free web search and page
+excerpts from [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp),
+install the optional dependencies with Python 3.10 or newer:
+
+```bash
+pip install -r requirements-parallel.txt
+METATRON_SEARCH_PROVIDER=parallel python metatron.py
+```
+
+Parallel search uses Fast mode and needs no account or API key. It sends search
+queries and requested URLs to `https://search.parallel.ai/mcp`; local Ollama
+inference stays local. Use `[SEARCH: query]` as usual, or `[SEARCH: https://example.com/page]`
+to fetch page excerpts with Parallel. Each new analysis gets its own opaque
+session ID, reused across its searches and fetches. Requests time out after 30
+seconds; service errors and free-tier limits are returned to the analysis without
+switching providers.
+
+Set `METATRON_SEARCH_PROVIDER=duckduckgo` to explicitly keep the existing provider,
+or `METATRON_SEARCH_PROVIDER=none` to disable the SEARCH dispatcher, including CVE
+lookups. This setting controls SEARCH calls only; recon tools still have their
+existing network behavior.
+
 Metatron needs **two terminal tabs** to run.
 
 ### Terminal 1 — Load the AI model
